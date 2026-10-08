@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>在庫管理</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif;background:linear-gradient(135deg,#faf8ff,#f0fffb);color:#252331}
+header{position:sticky;top:0;z-index:10;background:#fffffff2;backdrop-filter:blur(10px);border-bottom:1px solid #eee}
+.header{max-width:1000px;margin:auto;padding:14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+h1,h2{margin:0}.sub{font-size:12px;color:#777;margin-top:4px}
+.wrap{max-width:1000px;margin:auto;padding:18px 14px 50px}.card{background:#fff;border-radius:18px;padding:16px;box-shadow:0 5px 22px #0000000b;margin-bottom:16px}
+nav{display:flex;gap:7px}.navbtn,.primary,.danger,.small{border:0;border-radius:11px;padding:10px 13px;font-weight:800;cursor:pointer}.navbtn{background:#f0eef7}.navbtn.active{background:#dcd2ff}.primary{background:#8d70df;color:#fff}.danger{background:#ffe1e1;color:#a52323}.small{background:#eef1f5;padding:7px 9px;font-size:12px}
+input,select{width:100%;padding:11px 12px;border:1px solid #ddd;border-radius:11px;background:#fff;font-size:15px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.formrow{display:flex;gap:8px;align-items:end}.formrow>div{flex:1}
+.category{margin:16px 0;border-radius:16px;overflow:hidden;background:#fff;border:1px solid #eee}.cathead{padding:13px 15px;background:linear-gradient(90deg,#eee8ff,#eafff8);border-left:6px solid #9b7bea;display:flex;justify-content:space-between;align-items:center;font-size:18px;font-weight:900}.count{font-size:12px;background:#fff;padding:5px 8px;border-radius:99px;color:#777}
+.row{padding:11px 14px;border-top:1px solid #eee;display:grid;grid-template-columns:1fr 120px 155px;gap:8px;align-items:center}.name{font-weight:700}.status{font-size:12px;font-weight:800}.status.relaxed{color:#177642}.status.tight{color:#8b6900}.status.urgent{color:#a52626}
+.actions{display:flex;gap:5px;justify-content:flex-end}.hidden{display:none}.msg{padding:12px;color:#666;font-size:13px}.toast{position:fixed;right:16px;bottom:16px;background:#272331;color:#fff;padding:12px 15px;border-radius:12px;box-shadow:0 8px 25px #0003;display:none;z-index:20}
+@media(max-width:700px){.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.actions{justify-content:flex-start}.formrow{display:block}.formrow>div{margin-bottom:8px}nav{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<header><div class="header">
+<div><h1>📦 在庫管理</h1><div class="sub">スタッフ用・管理用を1つにまとめた運用版</div></div>
+<nav><button class="navbtn active" id="staffTab">在庫一覧</button><button class="navbtn" id="todayTab">今日の変更</button><button class="navbtn" id="adminTab">管理</button></nav>
+</div></header>
+
+<main class="wrap">
+<section id="staffPage">
+<div class="card">
+<div style="font-weight:800;margin-bottom:8px">👤 名前</div>
+<select id="staffSelect"><option value="">選択してください</option></select>
+</div>
+<div id="staffList" class="msg">読み込み中…</div>
+</section>
+
+<section id="todayPage" class="hidden">
+<div class="card"><h2>🕘 今日の変更</h2><div class="sub">本日0:00以降に変更された在庫</div></div>
+<div id="todayList" class="card">読み込み中…</div>
+</section>
+
+<section id="adminPage" class="hidden">
+<div class="card">
+<h2>⚙️ 品目管理</h2><div class="sub">ここで追加・名前変更・分類変更・削除ができます</div>
+<div class="grid" style="margin-top:14px">
+<div><label>分類</label><select id="newCategory"></select></div>
+<div><label>品目名</label><input id="newName" placeholder="例：牛肉"></div>
+</div>
+<button class="primary" id="addBtn" style="margin-top:10px;width:100%">＋ 品目を追加</button>
+</div>
+<div class="card">
+<h2>現在の品目</h2><div class="sub">編集した内容はスタッフ画面にも反映されます</div>
+<div id="adminList" style="margin-top:10px">読み込み中…</div>
+</div>
+</section>
+</main>
+
+<div id="pinModal" class="hidden" style="position:fixed;inset:0;background:#0006;z-index:30;display:none;align-items:center;justify-content:center;padding:20px">
+  <div class="card" style="width:min(380px,100%);margin:0">
+    <h2>🔐 管理者確認</h2>
+    <div class="sub">店長用PINを入力してください</div>
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" style="margin-top:14px">
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="navbtn" id="pinCancel" style="flex:1">キャンセル</button>
+      <button class="primary" id="pinOk" style="flex:1">入る</button>
+    </div>
+    <div id="pinError" style="color:#b22;font-size:12px;margin-top:8px"></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+const U="https://gtairbzlacrdiwrpmrxv.supabase.co";
+const K="sb_publishable_ljGIi_72iQHK27YeRmg5uA_IngpcqWU";
+const H={"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"};
+const order=["肉","ポテト類","ソース類","梱包","キッチン用","その他","菜","ドリンク","主"];
+const labels={"肉":"🥩 肉","ポテト類":"🍟 ポテト","ソース類":"🥫 ソース","梱包":"📦 梱包","キッチン用":"🔧 キッチン用品","その他":"🧰 その他","菜":"🥬 野菜・菜","ドリンク":"🥤 ドリンク","主":"🍞 その他食材"};
+const states={relaxed:"🟢 余裕",tight:"🟡 切迫",urgent:"🔴 緊急"};
+let items=[],staff=[];
+
+async function api(path,opt={}){const r=await fetch(U+"/rest/v1/"+path,{...opt,headers:{...H,...(opt.headers||{})}});const text=await r.text();if(!r.ok)throw Error(text||("HTTP "+r.status));if(!text)return null;try{return JSON.parse(text)}catch(e){return null}}
+function toast(t){toastEl.textContent=t;toastEl.style.display="block";setTimeout(()=>toastEl.style.display="none",1800)}
+const toastEl=document.getElementById("toast");
+
+async function load(){
+ try{
+  staff=await api("staff?select=id,name&active=eq.true&order=created_at");
+  staff.forEach(s=>{let o=document.createElement("option");o.value=s.id;o.textContent=s.name;staffSelect.appendChild(o)});
+  items=await api("inventory_items?select=id,category,item_name,status&order=category,item_name");
+  fillCategories();renderStaff();renderAdmin();
+ }catch(e){staffList.innerHTML='<div class="card">読み込み失敗<br><small>'+e.message+"</small></div>"}
+}
+function fillCategories(){
+ newCategory.innerHTML=order.map(c=>'<option value="'+c+'">'+(labels[c]||c)+"</option>").join("");
+}
+function sortedCats(){
+ return [...new Set(items.map(x=>x.category))].sort((a,b)=>(order.indexOf(a)<0?99:order.indexOf(a))-(order.indexOf(b)<0?99:order.indexOf(b)));
+}
+function renderStaff(){
+ staffList.innerHTML="";
+ sortedCats().forEach(c=>{
+  const box=document.createElement("div");box.className="category";const arr=items.filter(x=>x.category===c);
+  box.innerHTML='<div class="cathead"><span>'+(labels[c]||c)+'</span><span class="count">'+arr.length+"品目</span></div>";
+  arr.forEach(i=>{
+   const r=document.createElement("div");r.className="row";r.style.gridTemplateColumns="1fr";
+   r.innerHTML='<div class="name">'+i.item_name+'</div><div class="actions">'+Object.entries(states).map(([v,t])=>'<button class="small '+(i.status===v?'active':'')+'" style="'+(i.status===v?'outline:2px solid #9b7bea':'')+'">'+t+'</button>').join("")+'</div>';
+   [...r.querySelectorAll("button")].forEach((b,n)=>b.onclick=()=>changeStatus(i,Object.keys(states)[n]));
+   box.appendChild(r);
+  });staffList.appendChild(box);
+ });
+}
+async function changeStatus(i,n){
+ if(i.status===n)return;if(!staffSelect.value){alert("先に名前を選択してください");return}
+ const old=i.status;
+ try{
+  await api("inventory_items?id=eq."+i.id,{method:"PATCH",body:JSON.stringify({status:n,updated_at:new Date().toISOString(),updated_by:staffSelect.value})});
+  await api("inventory_changes",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({item_id:i.id,old_status:old,new_status:n,changed_by:staffSelect.value})});
+  i.status=n;renderStaff();toast("在庫状態を更新しました");
+ }catch(e){alert("変更できませんでした\n"+e.message)}
+}
+function renderAdmin(){
+ adminList.innerHTML="";
+ sortedCats().forEach(c=>{
+  const box=document.createElement("div");box.className="category";const arr=items.filter(x=>x.category===c);
+  box.innerHTML='<div class="cathead"><span>'+(labels[c]||c)+'</span><span class="count">'+arr.length+"品目</span></div>";
+  arr.forEach(i=>{
+   const r=document.createElement("div");r.className="row";
+   r.innerHTML='<div><div class="name">'+i.item_name+'</div><div class="status '+i.status+'">'+states[i.status]+'</div></div>'+
+   '<select class="catEdit">'+order.map(c2=>'<option '+(c2===c?"selected":"")+' value="'+c2+'">'+(labels[c2]||c2)+"</option>").join("")+'</select>'+
+   '<div class="actions"><button class="small edit">名前変更</button><button class="danger" style="padding:7px 9px;font-size:12px">削除</button></div>';
+   r.querySelector(".catEdit").onchange=e=>updateItem(i,{category:e.target.value});
+   r.querySelector(".edit").onclick=()=>{let n=prompt("新しい品目名",i.item_name);if(n&&n.trim()&&n.trim()!==i.item_name)updateItem(i,{item_name:n.trim()})};
+   r.querySelector(".danger").onclick=()=>removeItem(i);
+   box.appendChild(r);
+  });adminList.appendChild(box);
+ });
+}
+async function updateItem(i,patch){
+ try{await api("inventory_items?id=eq."+i.id,{method:"PATCH",body:JSON.stringify(patch)});Object.assign(i,patch);renderStaff();renderAdmin();toast("更新しました")}catch(e){alert("更新できませんでした\n"+e.message)}
+}
+async function removeItem(i){
+ if(!confirm("「"+i.item_name+"」を削除しますか？"))return;
+ try{await api("inventory_items?id=eq."+i.id,{method:"DELETE"});items=items.filter(x=>x.id!==i.id);renderStaff();renderAdmin();toast("削除しました")}catch(e){alert("削除できませんでした\n"+e.message)}
+}
+addBtn.onclick=async()=>{
+ const c=newCategory.value,n=newName.value.trim();if(!n){alert("品目名を入力してください");return}
+ try{const a=await api("inventory_items",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify({category:c,item_name:n,status:"relaxed"})});items.push(a[0]);newName.value="";renderStaff();renderAdmin();toast("品目を追加しました")}catch(e){alert("追加できませんでした\n"+e.message)}
+};
+function showPage(page){
+  staffPage.classList.toggle("hidden",page!=="staff");
+  todayPage.classList.toggle("hidden",page!=="today");
+  adminPage.classList.toggle("hidden",page!=="admin");
+  staffTab.classList.toggle("active",page==="staff");
+  todayTab.classList.toggle("active",page==="today");
+  adminTab.classList.toggle("active",page==="admin");
+  if(page==="today") loadToday();
+}
+staffTab.onclick=()=>showPage("staff");
+todayTab.onclick=()=>showPage("today");
+const ADMIN_PIN="1234"; // 公開前にここを店長用PINへ変更
+let pinAction=null;
+adminTab.onclick=()=>{
+  if(sessionStorage.getItem("admin_ok")==="1"){showPage("admin");return}
+  pinInput.value="";pinError.textContent="";pinModal.classList.remove("hidden");pinModal.style.display="flex";pinAction=()=>showPage("admin");setTimeout(()=>pinInput.focus(),50);
+};
+pinCancel.onclick=()=>{pinModal.classList.add("hidden");pinModal.style.display="none";pinAction=null};
+pinOk.onclick=()=>{
+  if(pinInput.value===ADMIN_PIN){sessionStorage.setItem("admin_ok","1");pinModal.classList.add("hidden");pinModal.style.display="none";if(pinAction)pinAction();pinAction=null}
+  else pinError.textContent="PINが違います";
+};
+pinInput.onkeydown=e=>{if(e.key==="Enter")pinOk.click()};
+async function loadToday(){
+  todayList.textContent="読み込み中…";
+  const d=new Date(), j=new Date(d.toLocaleString("en-US",{timeZone:"Asia/Tokyo"}));
+  j.setHours(0,0,0,0);
+  const start=new Date(j.getTime()-9*60*60*1000).toISOString();
+  try{
+    const a=await api("inventory_changes?select=id,old_status,new_status,changed_at,item:inventory_items(item_name,category),staff:changed_by(name)&changed_at=gte."+encodeURIComponent(start)+"&order=changed_at.desc");
+    if(!a.length){todayList.innerHTML='<div class="msg">今日はまだ変更がありません。</div>';return}
+    todayList.innerHTML=a.map(x=>{
+      const tx=v=>states[v]||v;
+      const t=new Date(x.changed_at).toLocaleString("ja-JP",{timeZone:"Asia/Tokyo",hour:"2-digit",minute:"2-digit"});
+      return '<div class="change" style="padding:12px 0;border-bottom:1px solid #eee"><b>'+((x.item||{}).item_name||"不明")+'</b>　'+tx(x.old_status)+' → '+tx(x.new_status)+'<div class="sub">'+((x.item||{}).category||"")+' ・ '+((x.staff||{}).name||"不明")+' ・ '+t+'</div></div>'
+    }).join("");
+  }catch(e){todayList.innerHTML='<div class="msg">履歴を読み込めませんでした<br><small>'+e.message+'</small></div>'}
+}
+load();
+</script>
+</body></html>
